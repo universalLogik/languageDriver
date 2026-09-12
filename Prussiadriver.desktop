@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Prussiadriver
+Comment=German Translation and Dictionary Suite
+Exec=/home/Verya/projects/Prussiadriver/build/Desktop_Qt_6_11_1_Release/Prussiadriver
+Icon=/home/Verya/projects/Prussiadriver/icon/Prussia.png
+Terminal=false
+Categories=Utility;Education;Development;
+StartupWMClass=Prussiadriver
