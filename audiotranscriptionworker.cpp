@@ -20,66 +20,7 @@ AudioTranscriptionWorker::~AudioTranscriptionWorker() {
     }
 }
 
-// void AudioTranscriptionWorker::initializeWhisper(const QString &modelPath) {
-//     if (m_ctx) {
-//         whisper_free(m_ctx);
-//         m_ctx = nullptr;
-//     }
 
-//     // 1. Initialize Whisper Context with Model Path
-//     whisper_context_params cparams = whisper_context_default_params();
-
-//     // --- USE THIS ORIGINAL FUNCTION CALL ---
-//     m_ctx = whisper_init_from_file_with_params(modelPath.toUtf8().constData(), cparams);
-
-//     if (!m_ctx) {
-//         emit transcriptionError("Failed to load Whisper Model from: " + modelPath);
-//         emit whisperInitialized(false);
-//         return;
-//     }
-
-//   //  qDebug() << "Whisper Model successfully loaded from:" << modelPath;
-//     emit whisperInitialized(true);
-
-
-// }
-
-
-
-// void AudioTranscriptionWorker::transcribeAudioFile(const QString &wavFilePath) {
-//     if (!m_ctx) {
-//         emit transcriptionError("Whisper Context is not initialized.");
-//         return;
-//     }
-
-//     std::vector<float> pcm32;
-//     if (!readWavFile(wavFilePath, pcm32)) {
-//         emit transcriptionError("Failed to read WAV File: " + wavFilePath);
-//         return;
-//     }
-
-//     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-//     params.print_progress   = false;
-//     params.print_special    = false;
-//     params.print_realtime   = false;
-//     params.print_timestamps = false;
-//     params.language         = "de";
-//     params.translate        = false;
-
-//     if (whisper_full(m_ctx, params, pcm32.data(), pcm32.size()) != 0) {
-//         emit transcriptionError("Failed to process Audio Transcription.");
-//         return;
-//     }
-
-//     QString fullText;
-//     const int nSegments = whisper_full_n_segments(m_ctx);
-//     for (int i = 0; i < nSegments; ++i) {
-//         const char *text = whisper_full_get_segment_text(m_ctx, i);
-//         fullText.append(QString::fromUtf8(text));
-//     }
-
-//     emit transcriptionFinished(fullText.trimmed());
-// }
 
 
 
