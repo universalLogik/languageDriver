@@ -18,8 +18,7 @@ private:
 
 
 public slots:
-  //  void initializeWhisper(const QString &modelPath);
-  //  void transcribeAudioFile(const QString &wavFilePath);
+
     void processTranscription(const QString &audioFilePath, const QString &languageCode);
 
 signals:
