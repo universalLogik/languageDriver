@@ -971,21 +971,50 @@ void MainWindow::saveFile() {
     }
 }
 
+void MainWindow::openFile() {
+    QString fileName = QFileDialog::getOpenFileName(
+        this, "Open Document", "", "Documents (*.html *.htm *.md *.txt);;HTML Files (*.html *.htm);;Markdown Files (*.md);;Text Files (*.txt);;All Files (*)");
+    if (fileName.isEmpty()) return;
+
+    loadFile(fileName);
+}
+
 void MainWindow::saveFileAs() {
     QString fileName = QFileDialog::getSaveFileName(
-        this, "Save German Text", m_currentFilePath, "Text Files (*.txt);;All Files (*)");
+        this, "Save Document", m_currentFilePath.isEmpty() ? "Unbenannt.html" : m_currentFilePath, "HTML Files (*.html *.htm);;Markdown Files (*.md);;Text Files (*.txt);;All Files (*)");
     if (fileName.isEmpty()) return;
 
     m_currentFilePath = fileName;
     writeFile(m_currentFilePath);
 }
 
-void MainWindow::openFile() {
-    QString fileName = QFileDialog::getOpenFileName(
-        this, "Open German Text", "", "Text Files (*.txt);;All Files (*)");
-    if (fileName.isEmpty()) return;
+void MainWindow::handleOpenFile() {
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        "Open Document",
+        QString(),
+        "Documents (*.html *.htm *.md *.txt);;HTML Files (*.html *.htm);;Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"
+        );
 
-    loadFile(fileName);
+    if (!filePath.isEmpty()) {
+        loadFile(filePath);
+    }
+}
+
+bool MainWindow::handleSaveFileAs() {
+    QString filePath = QFileDialog::getSaveFileName(
+        this,
+        "Save Document",
+        m_currentFilePath.isEmpty() ? "Unbenannt.html" : m_currentFilePath,
+        "HTML Files (*.html *.htm);;Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"
+        );
+
+    if (filePath.isEmpty()) {
+        return false;
+    }
+
+    m_currentFilePath = filePath;
+    return writeFile(filePath);
 }
 
 void MainWindow::loadFile(const QString &filePath) {
@@ -999,8 +1028,19 @@ void MainWindow::loadFile(const QString &filePath) {
     }
 
     QTextStream in(&file);
-    inputEditor->setPlainText(in.readAll());
+    QString content = in.readAll();
     file.close();
+
+    QFileInfo fileInfo(filePath);
+    QString ext = fileInfo.suffix().toLower();
+
+    if (ext == "html" || ext == "htm") {
+        inputEditor->setHtml(content);
+    } else if (ext == "md") {
+        inputEditor->setMarkdown(content);
+    } else {
+        inputEditor->setPlainText(content);
+    }
 
     m_currentFilePath = filePath;
     inputEditor->document()->setModified(false);
@@ -1016,6 +1056,7 @@ void MainWindow::loadFile(const QString &filePath) {
     }
 }
 
+
 bool MainWindow::writeFile(const QString &filePath) {
     QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -1027,7 +1068,17 @@ bool MainWindow::writeFile(const QString &filePath) {
     }
 
     QTextStream out(&file);
-    out << inputEditor->toPlainText();
+
+    QFileInfo fileInfo(filePath);
+    QString ext = fileInfo.suffix().toLower();
+
+    if (ext == "html" || ext == "htm") {
+        out << inputEditor->toHtml();
+    } else if (ext == "md") {
+        out << inputEditor->toMarkdown();
+    } else {
+        out << inputEditor->toPlainText();
+    }
 
     if (!file.commit()) {
         if (statusLabel) {
@@ -1046,10 +1097,11 @@ bool MainWindow::writeFile(const QString &filePath) {
 
     if (statusLabel) {
         statusLabel->setStyleSheet("color: #00FF00;");
-        statusLabel->setText("Saved: " + QFileInfo(filePath).fileName());
+        statusLabel->setText("Saved: " + fileInfo.fileName());
     }
     return true;
 }
+
 
 void MainWindow::updateWindowTitle() {
     QString title = "Prussiadriver";
@@ -1846,18 +1898,6 @@ void MainWindow::handleNewFile() {
     clearAll();
 }
 
-void MainWindow::handleOpenFile() {
-    QString filePath = QFileDialog::getOpenFileName(
-        this,
-        "Open German Text Document",
-        QString(),
-        "Text Files (*.txt *.md);;All Files (*)"
-        );
-
-    if (!filePath.isEmpty()) {
-        loadFile(filePath);
-    }
-}
 
 bool MainWindow::handleSaveFile() {
     if (m_currentFilePath.isEmpty()) {
@@ -1866,21 +1906,7 @@ bool MainWindow::handleSaveFile() {
     return writeFile(m_currentFilePath);
 }
 
-bool MainWindow::handleSaveFileAs() {
-    QString filePath = QFileDialog::getSaveFileName(
-        this,
-        "Save German Text Document",
-        m_currentFilePath.isEmpty() ? "Unbenannt.txt" : m_currentFilePath,
-        "Text Files (*.txt *.md);;All Files (*)"
-        );
 
-    if (filePath.isEmpty()) {
-        return false;
-    }
-
-    m_currentFilePath = filePath;
-    return writeFile(filePath);
-}
 
 void MainWindow::switchWordPane(int index) {
     if (!wordStackedWidget) return;
