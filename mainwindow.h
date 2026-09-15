@@ -7,7 +7,6 @@
 #include <QList>
 #include <QMap>
 #include <QStringList>
-//#include <memory>
 #include <QToolButton>
 #include <QFrame>
 #include <QVBoxLayout>
@@ -17,7 +16,7 @@
 #include <QSaveFile>
 #include <QFileInfo>
 #include <QStackedWidget>
-
+#include <QTimer>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -34,9 +33,6 @@ class QLabel;
 class AudioTranscriptionWorker;
 class RecentFilesManager;
 
-
-
-
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -50,13 +46,10 @@ signals:
     void initDictionary();
     void operateTranslation(const QStringList &germanChunks);
     void operateLookup(const QStringList &germanChunks);
-    //void initWhisper(const QString &modelPath);
     void operateTranscription(const QString &audioFilePath, const QString &languageCode);
     void operateWordUpdate(int chunkIndex, const QList<QPair<QString, QString>> &updatedList);
-void operatePureLookup(const QString &text);
-void operatePureWordUpdate(const QList<QPair<QString, QString>> &updatedList);
-
-
+    void operatePureLookup(const QString &text);
+    void operatePureWordUpdate(const QList<QPair<QString, QString>> &updatedList);
 
 private slots:
     void processText();
@@ -68,240 +61,154 @@ private slots:
     void showNextChunk();
     void showPreviousChunk();
     void handleChunkTranslationFinished(int index, const QString &translation);
-
-    //void handleTranscriptionFinished(const QString &text);
-    //void handleTranscriptionError(const QString &errorMessage);
-
     void onTranscriptionFinished(const QString &text);
-
-    // Inside private slots:
     void processLookupOnly();
-
-    // Inside private methods:
     void initLookupOnlyButton();
     void handlePureLookupFinished(const QList<QPair<QString, QString>> &results);
     void switchWordPane(int index);
     void handlePureWordUpdateFinished(bool success);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
-
-
 
 private:
     void updateChunkDisplay();
     QString getEditorPanelStyle(const QString &accentColor) const;
-   // QString getActionButtonStyle(bool isDark = true) const;
     void resetSecondaryWordEditor();
     void initCopyButton();
     void initSplitWordEditorButton(QHBoxLayout *wordHeaderLayout, QSplitter *wordEditorSplitter);
 
     void playCurrentAudio();
-     void setupUiLayout();
-     void setupSeamButtonMenu();
-     void setupCollapseFeature();
-     void setupSortFeature();
-     void setupVoiceModeFeature();
-     void setupAudioPlaybackFeature();
-     void setupTranslationFeature();
-     void setupWordExplanationsFeature();
-     QHBoxLayout* setupActionControlFeature();
-     QHBoxLayout* setupNavigationControlFeature();
-     void setupShortcutsAndEvents();
-     void initialPiperProcess();
-     void setupBottomControlFeature();
-     void initTranscribeButton();
-     void setupSpeechRecognitionFeature();
+    void setupUiLayout();
+    void setupSeamButtonMenu();
+    void setupCollapseFeature();
+    void setupSortFeature();
+    void setupVoiceModeFeature();
+    void setupAudioPlaybackFeature();
+    void setupTranslationFeature();
+    void setupWordExplanationsFeature();
+    QHBoxLayout* setupActionControlFeature();
+    QHBoxLayout* setupNavigationControlFeature();
+    void setupShortcutsAndEvents();
+    void initialPiperProcess();
+    void setupBottomControlFeature();
+    void initTranscribeButton();
+    void setupSpeechRecognitionFeature();
 
-     void setupAudioRecorder();
-     void startRecordingAudio();
-     void stopRecordingAudio();
-     void initThemeToggleButton();
-     void applyTheme(bool isDark);
-     void applySystemTheme(bool isDark);
-     void stripComments();
+    void setupAudioRecorder();
+    void startRecordingAudio();
+    void stopRecordingAudio();
+    void initThemeToggleButton();
+    void applyTheme(bool isDark);
+    void applySystemTheme(bool isDark);
+    void stripComments();
 
-     void saveFile();
-     void saveFileAs();
-     void openFile();
-     void loadFile(const QString &filePath);
-     bool writeFile(const QString &filePath);
-     void updateWindowTitle();
-     void initEditWordButton();
-     void handleWordUpdateFinished(bool success);
+    void saveFile();
+    void saveFileAs();
+    void openFile();
+    void loadFile(const QString &filePath);
+    bool writeFile(const QString &filePath);
+    void updateWindowTitle();
+    void initEditWordButton();
+    void handleWordUpdateFinished(bool success);
 
-     void initHistoryMenu();
-    // void initRecentFilesButton();
+    void initHistoryMenu();
+    void initFileMenuButton();
+    void setupFileMenu();
+    void handleNewFile();
+    void handleOpenFile();
+    bool handleSaveFile();
+    bool handleSaveFileAs();
 
+    // Audio Pipeline and Looping
+    void toggleAudioLoop();
+    void stopAudioLoop();
+    void playNextLoopToken();
+    bool writeToAudioPipe(const QString &pipePath, const QString &text);
 
-     void initFileMenuButton();
-     void setupFileMenu();
-     void handleNewFile();
-     void handleOpenFile();
-     bool handleSaveFile();
-     bool handleSaveFileAs();
+    QString getSeamButtonStyle(bool isDark = true) const;
 
-     bool ensurePipeOpen(const QString &lang);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  QString getSeamButtonStyle(bool isDark = true) const;
-
-
-
-
-
-
-
-
-
-
- private:
-    // Symmetrical Data Containers for progressive Slot Overwriting
+private:
     QStringList m_germanChunks;
     QString m_modelPath;
-    //const QString m_seamButtonStyle;
 
     QStringList m_sentenceChunks;
-    QStringList m_englishTranslations; // Added to cache the incoming stream
-    // QList<QList<QPair<QString, QString>>> m_chunkedExplanations;
+    QStringList m_englishTranslations;
     int m_currentChunkIndex;
     Ui::MainWindow *ui;
 
-    // Graphical Components for the User Interface Layout
-    QTextEdit *inputEditor{nullptr}; // Added missing Component
-    QPlainTextEdit *sentenceOutputEditor;
-    QPlainTextEdit *wordOutputEditor;
-    QPushButton *processButton; // Added missing Component
-    QPushButton *nextButton;
-    QPushButton *prevButton;
-    QLabel *chunkLabel;
-    QPushButton *clearButton;
-    QSplitter *rightOutputSplitter;
+    QTextEdit *inputEditor{nullptr};
+    QPlainTextEdit *sentenceOutputEditor{nullptr};
+    QPlainTextEdit *wordOutputEditor{nullptr};
+    QPushButton *processButton{nullptr};
+    QPushButton *nextButton{nullptr};
+    QPushButton *prevButton{nullptr};
+    QLabel *chunkLabel{nullptr};
+    QPushButton *clearButton{nullptr};
+    QSplitter *rightOutputSplitter{nullptr};
 
-    QFrame *seamContainer;
-    QToolButton *btnCollapseLeft;
-    QToolButton *btnCollapseRight;
- //   QWidget *rightOutputWidget;
-    QVBoxLayout *rightOutputLayout;
-    QPlainTextEdit *wordOutputEditorSecondary;
-    QToolButton *btnSplitWordEditor;
+    QFrame *seamContainer{nullptr};
+    QToolButton *btnCollapseLeft{nullptr};
+    QToolButton *btnCollapseRight{nullptr};
+    QVBoxLayout *rightOutputLayout{nullptr};
+    QPlainTextEdit *wordOutputEditorSecondary{nullptr};
+    QToolButton *btnSplitWordEditor{nullptr};
 
-
-    QToolButton *btnToggleSort;
+    QToolButton *btnToggleSort{nullptr};
     bool m_showOriginalOrder;
-    QToolButton *btnToggleVoiceMode;
+    QToolButton *btnToggleVoiceMode{nullptr};
     bool m_directInputVoiceMode;
     bool m_translationEngineInitialized;
 
-
     QList<QList<QPair<QString, QString>>> m_chunkedOriginalExplanations;
     QList<QList<QPair<QString, QString>>> m_chunkedExerciseExplanations;
-    QToolButton *btnPlayAudio;
-    QProcess *m_piperProcess;
-    QFile m_pipeFile;
+    QToolButton *btnPlayAudio{nullptr};
+    QProcess *m_piperProcess{nullptr};
 
     QToolButton *btnWhisperGerman{nullptr};
     QToolButton *btnWhisperEnglish{nullptr};
     QToolButton *btnWhisperSpanish{nullptr};
 
-
     QTimer *m_listeningAnimationTimer{nullptr};
     int m_listeningDotCount;
     QString m_recordedAudioPath;
     QString m_activeTranscriptionLanguage;
-    QToolButton *btnCopyTranslation;
+    QToolButton *btnCopyTranslation{nullptr};
     QToolButton *btnToggleTheme{nullptr};
     bool m_isDarkMode{true};
-    QProcess *m_recordProcess;
-    QToolButton *btnLookupOnly;
-    // Threading and Processing Infrastructure
-    TranslationEngine*  translationEngine;
-    QThread *translationThread;
+    QProcess *m_recordProcess{nullptr};
+    QToolButton *btnLookupOnly{nullptr};
 
-    QThread *dictionaryThread;
-    DictionaryWorker *dictionaryWorker;
+    TranslationEngine *translationEngine{nullptr};
+    QThread *translationThread{nullptr};
 
-    QThread *m_audioThread;
-    AudioTranscriptionWorker *m_audioWorker;
+    QThread *dictionaryThread{nullptr};
+    DictionaryWorker *dictionaryWorker{nullptr};
+
+    QThread *m_audioThread{nullptr};
+    AudioTranscriptionWorker *m_audioWorker{nullptr};
     QString m_whisperModelPath;
     QString m_cleanedText;
-    QLabel *statusLabel;
+    QLabel *statusLabel{nullptr};
     QString m_currentFilePath;
-    QToolButton *btnEditWordEditor;
+    QToolButton *btnEditWordEditor{nullptr};
     bool m_isEditingWordMode;
-    QLabel *lblWordHeader;
+    QLabel *lblWordHeader{nullptr};
 
-    //QToolButton *btnRecentFiles;
-    QToolButton *btnFileMenu;
-    QMenu *m_fileMenu;
-    RecentFilesManager *m_recentFilesManager;
+    QToolButton *btnFileMenu{nullptr};
+    QMenu *m_fileMenu{nullptr};
+    RecentFilesManager *m_recentFilesManager{nullptr};
 
-    QStackedWidget *wordStackedWidget;
-    QPlainTextEdit *lookupOutputEditor;
-    QToolButton *btnTabSentenceWords;
-    QToolButton *btnTabGlossary;
+    QStackedWidget *wordStackedWidget{nullptr};
+    QPlainTextEdit *lookupOutputEditor{nullptr};
+    QToolButton *btnTabSentenceWords{nullptr};
+    QToolButton *btnTabGlossary{nullptr};
 
-    QFile m_pipeFileDe;
-    QFile m_pipeFileEn;
-    QFile m_pipeFileEs;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    // Dedicated State Management for Audio Looping
+    QTimer *m_loopAudioTimer{nullptr};
+    QStringList m_loopTokens;
+    int m_currentLoopIndex{0};
+    bool m_isLooping{false};
 };
 
 #endif // MAINWINDOW_H
