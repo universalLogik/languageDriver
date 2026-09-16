@@ -348,10 +348,45 @@ bool MainWindow::writeToAudioPipe(const QString &pipePath, const QString &text) 
     return false;
 }
 
+// void MainWindow::playCurrentAudio() {
+//     QString textToPlay;
+
+//     if (m_directInputVoiceMode) {
+//         stripComments();
+//         textToPlay = m_cleanedText;
+//     } else {
+//         if (m_currentChunkIndex >= 0 && m_currentChunkIndex < m_germanChunks.size()) {
+//             textToPlay = m_germanChunks.at(m_currentChunkIndex);
+//         }
+//     }
+
+//     if (textToPlay.trimmed().isEmpty()) return;
+
+//     QString targetLang = m_activeTranscriptionLanguage;
+//     if (targetLang != "es" && targetLang != "en") {
+//         targetLang = "de";
+//     }
+
+//     QString pipePath = "/tmp/piper_pipe_de";
+//     if (targetLang == "es") {
+//         pipePath = "/tmp/piper_pipe_es";
+//     } else if (targetLang == "en") {
+//         pipePath = "/tmp/piper_pipe_en";
+//     }
+
+//     writeToAudioPipe(pipePath, textToPlay);
+// }
+
 void MainWindow::playCurrentAudio() {
     QString textToPlay;
 
-    if (m_directInputVoiceMode) {
+    if (inputEditor && inputEditor->textCursor().hasSelection()) {
+        textToPlay = inputEditor->textCursor().selectedText();
+        textToPlay.replace(QChar(0x00A0), ' ');
+        textToPlay.replace(QChar::ParagraphSeparator, ' ');
+        textToPlay.remove(QRegularExpression("[\\x{fdd0}-\\x{fdef}]"));
+        textToPlay = textToPlay.trimmed();
+    } else if (m_directInputVoiceMode) {
         stripComments();
         textToPlay = m_cleanedText;
     } else {
@@ -376,6 +411,7 @@ void MainWindow::playCurrentAudio() {
 
     writeToAudioPipe(pipePath, textToPlay);
 }
+
 
 void MainWindow::clearAll() {
     m_isEditingWordMode = false;
@@ -418,6 +454,17 @@ void MainWindow::clearAll() {
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+
+    if (watched == inputEditor && event->type() == QEvent::Resize) {
+        int currentWidth = inputEditor->viewport()->width();
+        int targetWidth = qMax(800, currentWidth);
+
+        if (inputEditor->lineWrapColumnOrWidth() != targetWidth) {
+            inputEditor->setLineWrapColumnOrWidth(targetWidth);
+        }
+    }
+
+
     if (event->type() == QEvent::KeyPress) {
         QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
 
@@ -440,10 +487,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             if (keyEvent->modifiers() & Qt::ShiftModifier) {
                 toggleAudioLoop();
             } else {
-                playCurrentAudio();
+                // If Text is selected, step through each Word individually
+                if (inputEditor && inputEditor->textCursor().hasSelection()) {
+                    toggleAudioLoop();
+                } else {
+                    playCurrentAudio();
+                }
             }
             return true;
         }
+
 
         if (keyEvent->key() == Qt::Key_F3) {
             if (btnLookupOnly && btnLookupOnly->isEnabled()) {
@@ -451,6 +504,23 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 return true;
             }
         }
+
+        if (keyEvent->key() == Qt::Key_F4) {
+            if (keyEvent->isAutoRepeat()) return true;
+            if (btnCollapseLeft && btnCollapseLeft->isEnabled()) {
+                btnCollapseLeft->animateClick();
+                return true;
+            }
+        }
+
+        if (keyEvent->key() == Qt::Key_F5) {
+            if (keyEvent->isAutoRepeat()) return true;
+            if (btnCollapseRight && btnCollapseRight->isEnabled()) {
+                btnCollapseRight->animateClick();
+                return true;
+            }
+        }
+
 
         if (keyEvent->modifiers() & Qt::ControlModifier) {
             switch (keyEvent->key()) {
@@ -515,7 +585,10 @@ void MainWindow::setupUiLayout() {
 
     inputEditor = new QTextEdit(centralWidget);
     inputEditor->setObjectName("inputEditor");
-    inputEditor->setPlaceholderText("Paste or type your German Sentences here...");
+    inputEditor->setPlaceholderText("Paste or type your  Sentences here...");
+    inputEditor->setLineWrapMode(QTextEdit::FixedPixelWidth);
+    inputEditor->setLineWrapColumnOrWidth(800);
+    inputEditor->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
     rightOutputSplitter = new QSplitter(Qt::Vertical, centralWidget);
 
@@ -652,13 +725,13 @@ void MainWindow::setupSeamButtonMenu() {
 void MainWindow::setupCollapseFeature() {
     btnCollapseLeft = new QToolButton(seamContainer);
     btnCollapseLeft->setText("◄");
-    btnCollapseLeft->setToolTip("Restore Split View or Hide Left Panel");
+    btnCollapseLeft->setToolTip("Restore Split View or Hide Left Panel (Alt+Left)");
     btnCollapseLeft->setCursor(Qt::PointingHandCursor);
     btnCollapseLeft->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     btnCollapseRight = new QToolButton(seamContainer);
     btnCollapseRight->setText("►");
-    btnCollapseRight->setToolTip("Hide Right Panel and Navigation");
+    btnCollapseRight->setToolTip("Hide Right Panel and Navigation (Alt+Right)");
     btnCollapseRight->setCursor(Qt::PointingHandCursor);
     btnCollapseRight->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
@@ -768,10 +841,44 @@ void MainWindow::setupAudioPlaybackFeature() {
         if (QGuiApplication::keyboardModifiers() & Qt::ShiftModifier) {
             toggleAudioLoop();
         } else {
-            playCurrentAudio();
+            if (inputEditor && inputEditor->textCursor().hasSelection()) {
+                toggleAudioLoop();
+            } else {
+                playCurrentAudio();
+            }
         }
     });
 }
+
+// void MainWindow::toggleAudioLoop() {
+//     if (m_isLooping) {
+//         stopAudioLoop();
+//         return;
+//     }
+
+//     stripComments();
+//     QStringList rawLines = m_cleanedText.split(QRegularExpression("[\\r\\n]+"), Qt::SkipEmptyParts);
+//     m_loopTokens.clear();
+
+//     for (const QString &line : rawLines) {
+//         QString trimmed = line.trimmed();
+//         if (!trimmed.isEmpty()) {
+//             m_loopTokens.append(trimmed);
+//         }
+//     }
+
+//     if (m_loopTokens.isEmpty()) return;
+
+//     m_isLooping = true;
+//     m_currentLoopIndex = 0;
+
+//     if (btnPlayAudio) {
+//         btnPlayAudio->setText("🔁");
+//         btnPlayAudio->setStyleSheet("color: #00FF00;");
+//     }
+
+//     playNextLoopToken();
+// }
 
 void MainWindow::toggleAudioLoop() {
     if (m_isLooping) {
@@ -779,14 +886,36 @@ void MainWindow::toggleAudioLoop() {
         return;
     }
 
-    stripComments();
-    QStringList rawLines = m_cleanedText.split(QRegularExpression("[\\r\\n]+"), Qt::SkipEmptyParts);
     m_loopTokens.clear();
 
-    for (const QString &line : rawLines) {
-        QString trimmed = line.trimmed();
-        if (!trimmed.isEmpty()) {
-            m_loopTokens.append(trimmed);
+    if (inputEditor && inputEditor->textCursor().hasSelection()) {
+        QString selected = inputEditor->textCursor().selectedText();
+
+        // Convert Non-Breaking Spaces, Paragraph Separators, and Slashes into standard Spaces
+        selected.replace(QChar(0x00A0), ' ');
+        selected.replace(QChar::ParagraphSeparator, ' ');
+        selected.replace('/', ' ');
+        selected.replace('|', ' ');
+        selected.replace(',', ' ');
+
+        // Split into individual Words and remove Qt Table Markers
+        QStringList rawTokens = selected.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        for (QString token : rawTokens) {
+            token.remove(QRegularExpression("[\\x{fdd0}-\\x{fdef}]"));
+            QString trimmed = token.trimmed();
+            if (!trimmed.isEmpty()) {
+                m_loopTokens.append(trimmed);
+            }
+        }
+    } else {
+        // Full Document Fallback: preserve complete Lines
+        stripComments();
+        QStringList rawLines = m_cleanedText.split(QRegularExpression("[\\r\\n]+"), Qt::SkipEmptyParts);
+        for (const QString &line : rawLines) {
+            QString trimmed = line.trimmed();
+            if (!trimmed.isEmpty()) {
+                m_loopTokens.append(trimmed);
+            }
         }
     }
 
@@ -802,6 +931,8 @@ void MainWindow::toggleAudioLoop() {
 
     playNextLoopToken();
 }
+
+
 
 void MainWindow::playNextLoopToken() {
     if (!m_isLooping || m_loopTokens.isEmpty() || !m_loopAudioTimer) return;
