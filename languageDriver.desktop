@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Prussiadriver
+Name=languageDriver
 Comment=German Translation and Dictionary Suite
-Exec=/build/Desktop_Qt_6_11_1_Release/Prussiadriver
-Icon=/icon/Prussia.png
+Exec=/build/Desktop_Qt_6_11_1_Release/languageDriver
+Icon=/icon/languageDriver.png
 Terminal=false
 Categories=Utility;Education;Development;
-StartupWMClass=Prussiadriver
+StartupWMClass=languageDriver

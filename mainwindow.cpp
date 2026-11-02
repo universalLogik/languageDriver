@@ -3,6 +3,8 @@
 #include "dictionaryworker.h"
 #include "audiotranscriptionworker.h"
 #include "recentfilesmanager.h"
+#include "multieditorwidget.h"
+
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -28,6 +30,10 @@
 #include <QApplication>
 #include <QMessageBox>
 #include <QMenu>
+#include <QSettings>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     ,m_modelPath("/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf")
@@ -50,6 +56,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     ,btnToggleTheme(nullptr)
     ,m_isEditingWordMode(false)
     ,m_isDarkMode(false)
+    ,m_themeMonitorProcess(nullptr)
     ,btnLookupOnly(nullptr)
     ,m_recentFilesManager(nullptr)
     ,statusLabel(nullptr)
@@ -66,6 +73,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     ,btnTabGlossary(nullptr)
     ,lblWordHeader(nullptr)
 {
+    m_isDarkMode = isSystemDarkTheme();
+
     setupSeamButtonMenu();
     initFileMenuButton();
     setupUiLayout();
@@ -128,6 +137,11 @@ MainWindow::~MainWindow() {
     if (m_recordProcess && m_recordProcess->state() != QProcess::NotRunning) {
         m_recordProcess->kill();
         m_recordProcess->waitForFinished();
+    }
+
+    if (m_themeMonitorProcess && m_themeMonitorProcess->state() != QProcess::NotRunning) {
+        m_themeMonitorProcess->terminate();
+        m_themeMonitorProcess->waitForFinished(500);
     }
 }
 
@@ -335,17 +349,22 @@ void MainWindow::initialPiperProcess() {
 bool MainWindow::writeToAudioPipe(const QString &pipePath, const QString &text) {
     initialPiperProcess();
 
-    QFile pipeFile(pipePath);
-    if (pipeFile.open(QIODevice::WriteOnly | QIODevice::Unbuffered)) {
-        QTextStream out(&pipeFile);
-        out << text << "\n";
-        out.flush();
-        pipeFile.close();
-        return true;
+    // Use non-blocking open so GUI thread NEVER freezes if pipe reader is not ready
+    int fd = ::open(pipePath.toUtf8().constData(), O_WRONLY | O_NONBLOCK);
+    if (fd < 0) {
+        if (errno == ENXIO) {
+            qDebug() << "[Audio Error] No reader connected to pipe:" << pipePath;
+        } else {
+            qDebug() << "[Audio Error] Cannot open Pipe:" << pipePath << strerror(errno);
+        }
+        return false;
     }
 
-    qDebug() << "[Audio Error] Cannot open Pipe:" << pipePath << pipeFile.errorString();
-    return false;
+    QByteArray payload = text.toUtf8() + "\n";
+    ssize_t written = ::write(fd, payload.constData(), payload.size());
+    ::close(fd);
+
+    return (written > 0);
 }
 
 // void MainWindow::playCurrentAudio() {
@@ -421,7 +440,18 @@ void MainWindow::clearAll() {
         btnEditWordEditor->setToolTip("Edit Word Explanations and Save to Database");
     }
 
-    inputEditor->clear();
+    if (inputEditor) {
+        inputEditor->clear();
+        inputEditor->setProperty("filePath", QString());
+        if (inputEditor->document()) {
+            inputEditor->document()->setMetaInformation(QTextDocument::DocumentTitle, "Untitled");
+            inputEditor->document()->setModified(false);
+        }
+        inputEditor->setWindowTitle("Untitled");
+        inputEditor->setFocus();
+    }
+
+
     sentenceOutputEditor->clear();
     wordOutputEditor->clear();
 
@@ -447,15 +477,12 @@ void MainWindow::clearAll() {
     }
 
     m_currentFilePath.clear();
-    inputEditor->document()->setModified(false);
     updateWindowTitle();
-
-    inputEditor->setFocus();
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 
-    if (watched == inputEditor && event->type() == QEvent::Resize) {
+    if (inputEditor && watched == inputEditor.data() && event->type() == QEvent::Resize) {
         int currentWidth = inputEditor->viewport()->width();
         int targetWidth = qMax(800, currentWidth);
 
@@ -576,19 +603,40 @@ void MainWindow::setupUiLayout() {
     qApp->installEventFilter(this);
 
     QWidget *centralWidget = new QWidget(this);
+    centralWidget->setObjectName("centralWidget");
     setCentralWidget(centralWidget);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
+
     QHBoxLayout *editorLayout = new QHBoxLayout();
     editorLayout->setSpacing(0);
 
-    inputEditor = new QTextEdit(centralWidget);
-    inputEditor->setObjectName("inputEditor");
-    inputEditor->setPlaceholderText("Paste or type your  Sentences here...");
-    inputEditor->setLineWrapMode(QTextEdit::FixedPixelWidth);
-    inputEditor->setLineWrapColumnOrWidth(800);
-    inputEditor->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    // Instantiate the MultiEditorWidget Container
+    multiInputContainer = new MultiEditorWidget(centralWidget);
+    inputEditor = multiInputContainer->activeEditor();
+
+    // Track active Editor changes so existing Shortcuts and Helpers continue working
+    // connect(multiInputContainer, &MultiEditorWidget::activeEditorChanged, this, [this](QTextEdit *editor) {
+    //     inputEditor = editor;
+    //     updateWindowTitle();
+    // });
+
+    connect(multiInputContainer, &MultiEditorWidget::activeEditorChanged, this, [this](QTextEdit *editor) {
+        inputEditor = editor;
+        if (inputEditor) {
+            m_currentFilePath = inputEditor->property("filePath").toString();
+        } else {
+            m_currentFilePath.clear();
+        }
+        updateWindowTitle();
+    });
+
+    connect(multiInputContainer, &MultiEditorWidget::textModified, this, &MainWindow::updateWindowTitle);
+
+
+
+
 
     rightOutputSplitter = new QSplitter(Qt::Vertical, centralWidget);
 
@@ -674,7 +722,7 @@ void MainWindow::setupUiLayout() {
     rightOutputSplitter->setStretchFactor(0, 2);
     rightOutputSplitter->setStretchFactor(1, 3);
 
-    editorLayout->addWidget(inputEditor, 4);
+    editorLayout->addWidget(multiInputContainer, 4);
 
     QVBoxLayout *middleColumnLayout = new QVBoxLayout();
     middleColumnLayout->setContentsMargins(0, 0, 0, 0);
@@ -750,16 +798,16 @@ void MainWindow::setupCollapseFeature() {
             if (nextButton) nextButton->show();
             if (chunkLabel) chunkLabel->show();
             btnCollapseRight->setEnabled(true);
-        } else if (inputEditor->isVisible()) {
-            inputEditor->hide();
+        } else if (multiInputContainer && multiInputContainer->isVisible()) {
+            multiInputContainer->hide();
             btnCollapseLeft->setEnabled(false);
             btnCollapseRight->setEnabled(true);
         }
     });
 
     connect(btnCollapseRight, &QToolButton::clicked, this, [this]() {
-        if (!inputEditor->isVisible()) {
-            inputEditor->show();
+        if (multiInputContainer && !multiInputContainer->isVisible()) {
+            multiInputContainer->show();
             btnCollapseLeft->setEnabled(true);
         } else if (rightOutputSplitter->isVisible()) {
             rightOutputSplitter->hide();
@@ -770,6 +818,10 @@ void MainWindow::setupCollapseFeature() {
             btnCollapseLeft->setEnabled(true);
         }
     });
+
+
+
+
 }
 
 void MainWindow::setupSortFeature() {
@@ -937,6 +989,10 @@ void MainWindow::toggleAudioLoop() {
 void MainWindow::playNextLoopToken() {
     if (!m_isLooping || m_loopTokens.isEmpty() || !m_loopAudioTimer) return;
 
+    if (m_currentLoopIndex < 0 || m_currentLoopIndex >= m_loopTokens.size()) {
+        m_currentLoopIndex = 0;
+    }
+
     QString currentToken = m_loopTokens.at(m_currentLoopIndex);
 
     if (!currentToken.endsWith('.') && !currentToken.endsWith('!') && !currentToken.endsWith('?')) {
@@ -957,7 +1013,12 @@ void MainWindow::playNextLoopToken() {
 
     writeToAudioPipe(pipePath, currentToken);
 
-    m_currentLoopIndex = (m_currentLoopIndex + 1) % m_loopTokens.size();
+    if (!m_loopTokens.isEmpty()) {
+        m_currentLoopIndex = (m_currentLoopIndex + 1) % m_loopTokens.size();
+    } else {
+        stopAudioLoop();
+        return;
+    }
 
     int dynamicDelay = qMax(1300, currentToken.length() * 85 + 750);
     m_loopAudioTimer->start(dynamicDelay);
@@ -1090,16 +1151,19 @@ void MainWindow::setupShortcutsAndEvents() {
     QShortcut *openShortcut = new QShortcut(QKeySequence::Open, this);
     connect(openShortcut, &QShortcut::activated, this, &MainWindow::openFile);
 
-    connect(inputEditor->document(), &QTextDocument::modificationChanged,
-            this, &MainWindow::updateWindowTitle);
+    QShortcut *themeShortcut = new QShortcut(QKeySequence("Ctrl+Shift+T"), this);
+    connect(themeShortcut, &QShortcut::activated, this, &MainWindow::toggleTheme);
 }
 
+
+
 void MainWindow::saveFile() {
-    if (m_currentFilePath.isEmpty()) {
-        saveFileAs();
-    } else {
-        writeFile(m_currentFilePath);
-    }
+    // if (m_currentFilePath.isEmpty()) {
+    //     saveFileAs();
+    // } else {
+    //     writeFile(m_currentFilePath);
+    // }
+    handleSaveFile();
 }
 
 void MainWindow::openFile() {
@@ -1111,12 +1175,13 @@ void MainWindow::openFile() {
 }
 
 void MainWindow::saveFileAs() {
-    QString fileName = QFileDialog::getSaveFileName(
-        this, "Save Document", m_currentFilePath.isEmpty() ? "Unbenannt.html" : m_currentFilePath, "HTML Files (*.html *.htm);;Markdown Files (*.md);;Text Files (*.txt);;All Files (*)");
-    if (fileName.isEmpty()) return;
+    // QString fileName = QFileDialog::getSaveFileName(
+    //     this, "Save Document", m_currentFilePath.isEmpty() ? "Unbenannt.html" : m_currentFilePath, "HTML Files (*.html *.htm);;Markdown Files (*.md);;Text Files (*.txt);;All Files (*)");
+    // if (fileName.isEmpty()) return;
 
-    m_currentFilePath = fileName;
-    writeFile(m_currentFilePath);
+    // m_currentFilePath = fileName;
+    // writeFile(m_currentFilePath);
+    handleSaveFileAs();
 }
 
 void MainWindow::handleOpenFile() {
@@ -1148,7 +1213,24 @@ bool MainWindow::handleSaveFileAs() {
     return writeFile(filePath);
 }
 
+
 void MainWindow::loadFile(const QString &filePath) {
+    // Guard: prompt if the active Buffer contains unsaved Modifications
+    if (inputEditor && inputEditor->document()->isModified()) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this,
+            "Unsaved Changes",
+            "The current Document has unsaved Changes.\nDo you want to save before opening another File?",
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel
+            );
+
+        if (reply == QMessageBox::Save) {
+            if (!handleSaveFile()) return;
+        } else if (reply == QMessageBox::Cancel) {
+            return;
+        }
+    }
+
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         if (statusLabel) {
@@ -1162,19 +1244,69 @@ void MainWindow::loadFile(const QString &filePath) {
     QString content = in.readAll();
     file.close();
 
+    // Purge previous Translation Data so stale Content never confuses the Display
+    sentenceOutputEditor->clear();
+    wordOutputEditor->clear();
+    if (wordOutputEditorSecondary) wordOutputEditorSecondary->clear();
+    m_germanChunks.clear();
+    m_sentenceChunks.clear();
+    m_englishTranslations.clear();
+    m_chunkedOriginalExplanations.clear();
+    m_chunkedExerciseExplanations.clear();
+    m_currentChunkIndex = -1;
+    stopAudioLoop();
+
+    if (chunkLabel) {
+        chunkLabel->setStyleSheet("");
+        chunkLabel->setText("No.: 0 || 0");
+    }
+    prevButton->setEnabled(false);
+    nextButton->setEnabled(false);
+
     QFileInfo fileInfo(filePath);
     QString ext = fileInfo.suffix().toLower();
 
-    if (ext == "html" || ext == "htm") {
-        inputEditor->setHtml(content);
-    } else if (ext == "md") {
-        inputEditor->setMarkdown(content);
-    } else {
-        inputEditor->setPlainText(content);
+    // =========================================================================
+    // NEW INJECTION: Sanitize formulas if present in raw text
+    // =========================================================================
+    if (content.contains("$$") || content.contains("\\mathbf")) {
+        static const QRegularExpression arrowRegex(R"(\\xrightarrow\{([^}]*)\})");
+        content.replace(arrowRegex, " → [\\1] ");
+
+        static const QRegularExpression boldRegex(R"(\\mathbf\{([^}]*)\})");
+        content.replace(boldRegex, "<b>\\1</b>");
+
+        static const QRegularExpression textRegex(R"(\\text\{([^}]*)\})");
+        content.replace(textRegex, "\\1");
+
+        content.replace(QRegularExpression(R"(\\\s+)"), " ");
+        content.remove("$$");
+        content.remove("$");
+    }
+    // =========================================================================
+
+    if (inputEditor) {
+        if (ext == "html" || ext == "htm") {
+            inputEditor->setHtml(content);
+        } else if (ext == "md") {
+            inputEditor->setMarkdown(content);
+        } else {
+            inputEditor->setPlainText(content);
+        }
+
+        inputEditor->setProperty("filePath", filePath);
+        if (inputEditor->document()) {
+            inputEditor->document()->setMetaInformation(QTextDocument::DocumentTitle, fileInfo.fileName());
+            inputEditor->document()->setModified(false);
+        }
+        inputEditor->setWindowTitle(fileInfo.fileName());
+    }
+
+    if (multiInputContainer) {
+        multiInputContainer->setActiveTitle(fileInfo.fileName());
     }
 
     m_currentFilePath = filePath;
-    inputEditor->document()->setModified(false);
     updateWindowTitle();
 
     if (m_recentFilesManager) {
@@ -1183,12 +1315,18 @@ void MainWindow::loadFile(const QString &filePath) {
 
     if (statusLabel) {
         statusLabel->setStyleSheet("color: #00FF00;");
-        statusLabel->setText("Loaded");
+        statusLabel->setText("Loaded: " + fileInfo.fileName());
     }
 }
 
-
 bool MainWindow::writeFile(const QString &filePath) {
+    // Safety Backup: preserve the original File before overwriting
+    if (QFile::exists(filePath)) {
+        QString backupPath = filePath + ".bak";
+        QFile::remove(backupPath);
+        QFile::copy(filePath, backupPath);
+    }
+
     QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (statusLabel) {
@@ -1202,6 +1340,8 @@ bool MainWindow::writeFile(const QString &filePath) {
 
     QFileInfo fileInfo(filePath);
     QString ext = fileInfo.suffix().toLower();
+
+    if (!inputEditor) return false;
 
     if (ext == "html" || ext == "htm") {
         out << inputEditor->toHtml();
@@ -1219,8 +1359,19 @@ bool MainWindow::writeFile(const QString &filePath) {
         return false;
     }
 
-    inputEditor->document()->setModified(false);
+    m_currentFilePath = filePath;
+    if (inputEditor) {
+        inputEditor->setProperty("filePath", filePath);
+        if (inputEditor->document()) {
+            inputEditor->document()->setMetaInformation(QTextDocument::DocumentTitle, fileInfo.fileName());
+            inputEditor->document()->setModified(false);
+        }
+        inputEditor->setWindowTitle(fileInfo.fileName());
+    }
+
     updateWindowTitle();
+
+
 
     if (m_recentFilesManager) {
         m_recentFilesManager->addFile(filePath);
@@ -1234,20 +1385,24 @@ bool MainWindow::writeFile(const QString &filePath) {
 }
 
 
+
+
 void MainWindow::updateWindowTitle() {
-    QString title = "Prussiadriver";
+    QString title = "languageDriver";
     if (!m_currentFilePath.isEmpty()) {
         title += " - " + QFileInfo(m_currentFilePath).fileName();
     } else {
         title += " - Untitled";
     }
 
-    if (inputEditor->document()->isModified()) {
+    bool isModified = (inputEditor && inputEditor->document()) ? inputEditor->document()->isModified() : false;
+
+    if (isModified) {
         title += " [*]";
     }
 
     setWindowTitle(title);
-    setWindowModified(inputEditor->document()->isModified());
+    setWindowModified(isModified);
 }
 
 void MainWindow::setupBottomControlFeature() {
@@ -1439,7 +1594,9 @@ void MainWindow::stopRecordingAudio() {
 }
 
 void MainWindow::onTranscriptionFinished(const QString &text) {
-    inputEditor->setPlaceholderText("Paste or type your German Sentences here...");
+    if (inputEditor) {
+        inputEditor->setPlaceholderText("Paste or type your German Sentences here...");
+    }
 
     if (text.isEmpty()) {
         chunkLabel->setStyleSheet("color: red;");
@@ -1447,7 +1604,9 @@ void MainWindow::onTranscriptionFinished(const QString &text) {
         return;
     }
 
-    inputEditor->append(text);
+    if (inputEditor) {
+        inputEditor->append(text);
+    }
 }
 
 QString MainWindow::getEditorPanelStyle(const QString &accentColor) const {
@@ -1545,6 +1704,49 @@ void MainWindow::initSplitWordEditorButton(QHBoxLayout *wordHeaderLayout, QSplit
     });
 }
 
+bool MainWindow::isSystemDarkTheme() const {
+    // 1. Check GNOME / Ubuntu color-scheme via gsettings first
+    QProcess process;
+    process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "color-scheme");
+    if (process.waitForFinished(300)) {
+        QString output = QString::fromUtf8(process.readAllStandardOutput()).trimmed();
+        if (output.contains("prefer-dark")) {
+            return true;
+        }
+        if (output.contains("default") || output.contains("prefer-light")) {
+            return false;
+        }
+    }
+
+    // 2. Check Qt style hints
+    auto scheme = QGuiApplication::styleHints()->colorScheme();
+    if (scheme == Qt::ColorScheme::Dark) {
+        return true;
+    }
+    if (scheme == Qt::ColorScheme::Light) {
+        return false;
+    }
+
+    // 3. Palette luminance fallback
+    QPalette pal = QGuiApplication::palette();
+    return pal.color(QPalette::WindowText).lightness() > pal.color(QPalette::Window).lightness();
+}
+
+void MainWindow::toggleTheme() {
+    m_isDarkMode = !m_isDarkMode;
+    applyTheme(m_isDarkMode);
+}
+
+void MainWindow::setThemeMode(const QString &mode) {
+    if (mode == "system") {
+        applyTheme(isSystemDarkTheme());
+    } else if (mode == "dark") {
+        applyTheme(true);
+    } else {
+        applyTheme(false);
+    }
+}
+
 void MainWindow::initThemeToggleButton() {
     if (!seamContainer || !seamContainer->layout()) return;
 
@@ -1552,16 +1754,49 @@ void MainWindow::initThemeToggleButton() {
     if (!seamLayout) return;
 
     btnToggleTheme = new QToolButton(seamContainer);
-    btnToggleTheme->setText("🌙");
-    btnToggleTheme->setToolTip("Toggle Dark / Light Theme");
+    btnToggleTheme->setText(m_isDarkMode ? "🌙" : "☀️");
     btnToggleTheme->setCursor(Qt::PointingHandCursor);
     btnToggleTheme->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    btnToggleTheme->setContextMenuPolicy(Qt::CustomContextMenu);
 
     seamLayout->addWidget(btnToggleTheme);
 
-    connect(btnToggleTheme, &QToolButton::clicked, this, [this]() {
-        m_isDarkMode = !m_isDarkMode;
-        applyTheme(m_isDarkMode);
+    connect(btnToggleTheme, &QToolButton::clicked, this, &MainWindow::toggleTheme);
+
+    connect(btnToggleTheme, &QToolButton::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QMenu menu(this);
+        QAction *actSystem = menu.addAction("Match Ubuntu System Theme");
+        QAction *actDay = menu.addAction("Day Theme (Light)");
+        QAction *actNight = menu.addAction("Night Theme (Dark)");
+
+        QAction *selected = menu.exec(btnToggleTheme->mapToGlobal(pos));
+        if (!selected) return;
+
+        if (selected == actSystem) {
+            setThemeMode("system");
+        } else if (selected == actDay) {
+            setThemeMode("light");
+        } else if (selected == actNight) {
+            setThemeMode("dark");
+        }
+    });
+
+    // Real-time Ubuntu system theme monitor via gsettings
+    m_themeMonitorProcess = new QProcess(this);
+    m_themeMonitorProcess->start("gsettings", QStringList() << "monitor" << "org.gnome.desktop.interface" << "color-scheme");
+    connect(m_themeMonitorProcess, &QProcess::readyReadStandardOutput, this, [this]() {
+        QString output = QString::fromUtf8(m_themeMonitorProcess->readAllStandardOutput()).trimmed();
+        bool isDark = output.contains("prefer-dark");
+        applyTheme(isDark);
+    });
+
+    // Backup listener for Qt portal styleHints
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme scheme) {
+        if (scheme == Qt::ColorScheme::Dark) {
+            applyTheme(true);
+        } else if (scheme == Qt::ColorScheme::Light) {
+            applyTheme(false);
+        }
     });
 }
 
@@ -1602,10 +1837,6 @@ void MainWindow::applySystemTheme(bool isDark) {
 
     QApplication::setStyle(QStyleFactory::create("Fusion"));
 
-    QGuiApplication::styleHints()->setColorScheme(
-        isDark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light
-        );
-
     QPalette windowPalette;
     if (isDark) {
         windowPalette.setColor(QPalette::Window, QColor(0x1e, 0x1e, 0x1e));
@@ -1623,15 +1854,17 @@ void MainWindow::applySystemTheme(bool isDark) {
         windowPalette.setColor(QPalette::ButtonText, QColor(0x22, 0x22, 0x22));
     }
     qApp->setPalette(windowPalette);
+    this->setPalette(windowPalette);
 
     if (btnToggleTheme) {
         btnToggleTheme->setText(isDark ? "🌙" : "☀️");
+        btnToggleTheme->setToolTip(QString("Theme: %1\nClick to toggle Day/Night (Ctrl+Shift+T)\nRight-click for options").arg(isDark ? "Night" : "Day"));
     }
 
     QString themeQss;
     if (isDark) {
         themeQss =
-            "QMainWindow { background-color: #1e1e1e; color: #e0e0e0; }"
+            "QMainWindow, QWidget#centralWidget { background-color: #1e1e1e; color: #e0e0e0; }"
             "QLabel { color: #e0e0e0; }"
             "#btnFileMenu {"
             "  background-color: #2b2b2b;"
@@ -1719,11 +1952,46 @@ void MainWindow::applySystemTheme(bool isDark) {
             "#btnToggleVoiceMode:checked:hover { background-color: #388e3c; }"
             "#btnWhisperGerman:checked, #btnWhisperEnglish:checked, #btnWhisperSpanish:checked { background-color: #7b1fa2; color: #ffffff; border: none; }"
             "#btnWhisperGerman:checked:hover, #btnWhisperEnglish:checked:hover, #btnWhisperSpanish:checked:hover { background-color: #8e24aa; }"
-            "QSplitter::handle:vertical { background-color: #333333; height: 4px; margin: 2px 0px; }"
-            "QSplitter::handle:vertical:hover { background-color: #4a90e2; }";
+                   "QSplitter::handle:vertical { background-color: #333333; height: 4px; margin: 2px 0px; }"
+                   "QSplitter::handle:vertical:hover { background-color: #4a90e2; }"
+                   "#paneToolbar {"
+                   "  background-color: #181818;"
+                   "  border-bottom: 1px solid #282828;"
+                   "}"
+                   "#paneToolbar[active=\"true\"] {"
+                   "  background-color: #1e1e1e;"
+                   "  border-bottom: 1px solid #333333;"
+                   "}"
+                   "#paneTitleLabel {"
+                   "  color: #888888;"
+                   "  font-size: 11px;"
+                   "  font-weight: normal;"
+                   "}"
+                   "#paneTitleLabel[active=\"true\"] {"
+                   "  color: #ffffff;"
+                   "  font-weight: bold;"
+                   "}"
+                   "#btnPaneAction {"
+                   "  background: transparent;"
+                   "  color: #c0c0c0;"
+                   "  border: none;"
+                   "  font-size: 11px;"
+                   "  font-weight: bold;"
+                   "  padding: 1px 4px;"
+                   "}"
+                   "#btnPaneAction:hover {"
+                   "  background-color: #383838;"
+                   "  color: #ffffff;"
+                   "  border-radius: 2px;"
+                   "}"
+                   "#btnPaneAction:disabled {"
+                   "  color: #444444;"
+                   "}"
+
+            ;
     } else {
         themeQss =
-            "QMainWindow { background-color: #f5f5f5; color: #222222; }"
+            "QMainWindow, QWidget#centralWidget { background-color: #f5f5f5; color: #222222; }"
             "QLabel { color: #222222; }"
             "#btnFileMenu {"
             "  background-color: #ffffff;"
@@ -1811,8 +2079,44 @@ void MainWindow::applySystemTheme(bool isDark) {
             "#btnToggleVoiceMode:checked:hover { background-color: #388e3c; }"
             "#btnWhisperGerman:checked, #btnWhisperEnglish:checked, #btnWhisperSpanish:checked { background-color: #7b1fa2; color: #ffffff; border: none; }"
             "#btnWhisperGerman:checked:hover, #btnWhisperEnglish:checked:hover, #btnWhisperSpanish:checked:hover { background-color: #8e24aa; }"
-            "QSplitter::handle:vertical { background-color: #cccccc; height: 4px; margin: 2px 0px; }"
-            "QSplitter::handle:vertical:hover { background-color: #1976d2; }";
+
+                   "QSplitter::handle:vertical { background-color: #cccccc; height: 4px; margin: 2px 0px; }"
+                   "QSplitter::handle:vertical:hover { background-color: #1976d2; }"
+                   "#paneToolbar {"
+                   "  background-color: #f5f5f5;"
+                   "  border-bottom: 1px solid #e0e0e0;"
+                   "}"
+                   "#paneToolbar[active=\"true\"] {"
+                   "  background-color: #ffffff;"
+                   "  border-bottom: 1px solid #cccccc;"
+                   "}"
+                   "#paneTitleLabel {"
+                   "  color: #777777;"
+                   "  font-size: 11px;"
+                   "  font-weight: normal;"
+                   "}"
+                   "#paneTitleLabel[active=\"true\"] {"
+                   "  color: #1e1e1e;"
+                   "  font-weight: bold;"
+                   "}"
+                   "#btnPaneAction {"
+                   "  background: transparent;"
+                   "  color: #555555;"
+                   "  border: none;"
+                   "  font-size: 11px;"
+                   "  font-weight: bold;"
+                   "  padding: 1px 4px;"
+                   "}"
+                   "#btnPaneAction:hover {"
+                   "  background-color: #e8e8e8;"
+                   "  color: #000000;"
+                   "  border-radius: 2px;"
+                   "}"
+                   "#btnPaneAction:disabled {"
+                   "  color: #bbbbbb;"
+                   "}"
+
+            ;
     }
 
     this->setStyleSheet(themeQss);
@@ -1844,15 +2148,32 @@ void MainWindow::processLookupOnly() {
     emit operatePureLookup(m_cleanedText);
 }
 
+// void MainWindow::stripComments() {
+//     static const QRegularExpression multiLineCommentRegex("/\\*[\\s\\S]*?\\*/");
+//     static const QRegularExpression singleLineCommentRegex("//[^\\r\\n]*");
+
+//     m_cleanedText = inputEditor->toPlainText();
+//     m_cleanedText.replace(multiLineCommentRegex, " ");
+//     m_cleanedText.replace(singleLineCommentRegex, " ");
+//     m_cleanedText = m_cleanedText.trimmed();
+// }
+
 void MainWindow::stripComments() {
     static const QRegularExpression multiLineCommentRegex("/\\*[\\s\\S]*?\\*/");
     static const QRegularExpression singleLineCommentRegex("//[^\\r\\n]*");
+
+    if (!inputEditor) {
+        m_cleanedText.clear();
+        return;
+    }
 
     m_cleanedText = inputEditor->toPlainText();
     m_cleanedText.replace(multiLineCommentRegex, " ");
     m_cleanedText.replace(singleLineCommentRegex, " ");
     m_cleanedText = m_cleanedText.trimmed();
 }
+
+
 
 void MainWindow::initEditWordButton() {
     if (!btnSplitWordEditor) return;
@@ -2031,10 +2352,13 @@ void MainWindow::handleNewFile() {
 
 
 bool MainWindow::handleSaveFile() {
-    if (m_currentFilePath.isEmpty()) {
+    if (!inputEditor) return false;
+
+    QString targetPath = inputEditor->property("filePath").toString();
+    if (targetPath.isEmpty()) {
         return handleSaveFileAs();
     }
-    return writeFile(m_currentFilePath);
+    return writeFile(targetPath);
 }
 
 

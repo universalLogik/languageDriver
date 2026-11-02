@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QPointer>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -32,6 +33,8 @@ class QThread;
 class QLabel;
 class AudioTranscriptionWorker;
 class RecentFilesManager;
+class MultiEditorWidget;
+
 
 class MainWindow : public QMainWindow
 {
@@ -99,6 +102,9 @@ private:
     void startRecordingAudio();
     void stopRecordingAudio();
     void initThemeToggleButton();
+    void toggleTheme();
+    void setThemeMode(const QString &mode);
+    bool isSystemDarkTheme() const;
     void applyTheme(bool isDark);
     void applySystemTheme(bool isDark);
     void stripComments();
@@ -137,7 +143,7 @@ private:
     int m_currentChunkIndex;
     Ui::MainWindow *ui;
 
-    QTextEdit *inputEditor{nullptr};
+    QPointer<QTextEdit> inputEditor;
     QPlainTextEdit *sentenceOutputEditor{nullptr};
     QPlainTextEdit *wordOutputEditor{nullptr};
     QPushButton *processButton{nullptr};
@@ -176,6 +182,7 @@ private:
     QToolButton *btnCopyTranslation{nullptr};
     QToolButton *btnToggleTheme{nullptr};
     bool m_isDarkMode{true};
+    QProcess *m_themeMonitorProcess{nullptr};
     QProcess *m_recordProcess{nullptr};
     QToolButton *btnLookupOnly{nullptr};
 
@@ -209,6 +216,14 @@ private:
     QStringList m_loopTokens;
     int m_currentLoopIndex{0};
     bool m_isLooping{false};
+
+    MultiEditorWidget *multiInputContainer{nullptr};
+
+
+
+
+
+
 };
 
 #endif // MAINWINDOW_H

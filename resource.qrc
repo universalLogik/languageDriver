@@ -1,5 +1,5 @@
 <RCC>
     <qresource prefix="/">
-        <file>icon/Prussian.png</file>
+        <file>icon/languageDriver.png</file>
     </qresource>
 </RCC>

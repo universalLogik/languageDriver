@@ -45,13 +45,13 @@ void RecentFilesManager::clearHistory()
 
 void RecentFilesManager::loadSettings()
 {
-    QSettings settings("Prussiadriver", "Prussiadriver");
+    QSettings settings("languageDriver", "languageDriver");
     m_recentFiles = settings.value("recentFiles").toStringList();
 }
 
 void RecentFilesManager::saveSettings()
 {
-    QSettings settings("Prussiadriver", "Prussiadriver");
+    QSettings settings("languageDriver", "languageDriver");
     settings.setValue("recentFiles", m_recentFiles);
 }
 
