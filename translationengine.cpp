@@ -55,6 +55,9 @@ void TranslationEngine::translateChunksAsync(const QStringList &germanChunks) {
     // UPDATE: Boot the Model Server back into Memory if it was released previously
     if (!isReady) {
         if (!initializeEngine(pathToModel)) {
+            for (int i = 0; i < m_chunks.size(); ++i) {
+                emit chunkTranslationFinished(i, "[Translation Error: Failed to start model server.]");
+            }
             emit batchTranslationFinished();
             return;
         }
@@ -86,9 +89,11 @@ bool TranslationEngine::initializeEngine(const QString &modelPath) {
 
     // Set the working Directory so the Server finds its local Files
     serverProcess->setWorkingDirectory(m_binPath);
-    // Inject the Path Environment Variable to force the Loading of the Vulkan Plugin
+    // Inject the Path Environment Variable to force the Loading of the Vulkan Plugin and shared libraries
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("GGML_BACKEND_PATH", m_binPath);
+    QString currentLdPath = env.value("LD_LIBRARY_PATH");
+    env.insert("LD_LIBRARY_PATH", currentLdPath.isEmpty() ? m_binPath : (m_binPath + ":" + currentLdPath));
     serverProcess->setProcessEnvironment(env);
     serverProcess->setStandardOutputFile(QProcess::nullDevice());
     serverProcess->setStandardErrorFile(QProcess::nullDevice());
@@ -172,7 +177,7 @@ void TranslationEngine::sendNextRequest() {
 
     QString promptText =
         QString("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-                "You are a professional translator. Translate German into clear, natural English. "
+                "You are a professional translator. Translate the following text into clear, natural English. "
                 "Output only the translation and nothing else.<|eot_id|>"
                 "<|start_header_id|>user<|end_header_id|>\n"
                 "%1<|eot_id|>"
