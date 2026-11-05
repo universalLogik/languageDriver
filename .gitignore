@@ -1,5 +1,41 @@
+# Build directories and artifacts
 build/
+bin/
+target/
+*.o
+*.obj
+*.so
+*.a
+*.dylib
+*.dll
+*.exe
+
+# IDE & Editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 .qtcreator/
+CMakeLists.txt.user*
+
+# Models & Submodules / Third-party builds
 llama.cpp/
 models/
+*.gguf
+*.bin
+
+# Local backups and temporary files
 *.bak
+*.tmp
+*.log
+
+# Local databases, config & sensitive credentials
+*.db
+*.sqlite
+*.sqlite3
+*.conf
+*.env
+*.env.*
+secrets.json
+credentials.json
