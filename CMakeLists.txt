@@ -56,10 +56,19 @@ else()
     endif()
 endif()
 
+# Path to whisper.cpp (can be customized via -DWHISPER_PATH=... or environment variable)
+if(NOT DEFINED WHISPER_PATH)
+    if(DEFINED ENV{WHISPER_PATH})
+        set(WHISPER_PATH "$ENV{WHISPER_PATH}")
+    else()
+        set(WHISPER_PATH "$ENV{HOME}/whisper.cpp")
+    endif()
+endif()
+
 # Header include paths
 target_include_directories(languageDriver PRIVATE
-    $ENV{WHISPER_PATH}/include
-    $ENV{WHISPER_PATH}/ggml/include
+    ${WHISPER_PATH}/include
+    ${WHISPER_PATH}/ggml/include
     ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/include
     ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/ggml/include
 )
@@ -72,10 +81,10 @@ target_compile_definitions(languageDriver PRIVATE
 # External library resolution
 find_library(WHISPER_LIB
     NAMES whisper
-    PATHS $ENV{WHISPER_PATH}/build
-          $ENV{WHISPER_PATH}/build/src
-          $ENV{WHISPER_PATH}/build/Release
-          $ENV{WHISPER_PATH}/build/Release/src
+    PATHS ${WHISPER_PATH}/build
+          ${WHISPER_PATH}/build/src
+          ${WHISPER_PATH}/build/Release
+          ${WHISPER_PATH}/build/Release/src
     NO_DEFAULT_PATH
 )
 

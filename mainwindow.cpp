@@ -31,12 +31,13 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QSettings>
+#include <QDir>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
-    ,m_modelPath("/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf")
+    ,m_modelPath("")
     ,m_piperProcess(nullptr)
     ,m_showOriginalOrder(false)
     ,m_directInputVoiceMode(false)
@@ -73,6 +74,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     ,btnTabGlossary(nullptr)
     ,lblWordHeader(nullptr)
 {
+    QSettings settings("languageDriver", "languageDriver");
+    QString defaultModel = QCoreApplication::applicationDirPath() + "/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf";
+    if (!QFile::exists(defaultModel)) {
+        defaultModel = QDir::homePath() + "/projects/languageDriver/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf";
+    }
+    m_modelPath = settings.value("Llama/modelPath", defaultModel).toString();
+
     m_isDarkMode = isSystemDarkTheme();
 
     setupSeamButtonMenu();
@@ -341,7 +349,13 @@ void MainWindow::initialPiperProcess() {
 
     if (m_piperProcess->state() == QProcess::NotRunning) {
         qDebug() << "[Piper Daemon] Relaunching background Speech Pipeline...";
-        m_piperProcess->start("$ENV{PIPER_PATH}/piper-start.sh");
+        QSettings settings("languageDriver", "languageDriver");
+        QString defaultScript = QCoreApplication::applicationDirPath() + "/piper/piper-start.sh";
+        if (!QFile::exists(defaultScript)) {
+            defaultScript = QDir::homePath() + "/piper/piper-start.sh";
+        }
+        QString piperScript = settings.value("Piper/startScript", defaultScript).toString();
+        m_piperProcess->start(piperScript);
         m_piperProcess->waitForStarted(500);
     }
 }

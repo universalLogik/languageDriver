@@ -10,6 +10,9 @@
 //#include <QDebug>
 #include <QThread> // Add this line here
 #include <QTimer>
+#include <QSettings>
+#include <QCoreApplication>
+#include <QDir>
 // #include "llama.h"
 
 
@@ -21,9 +24,13 @@ TranslationEngine::TranslationEngine(QObject *parent)
     ,m_maxRetries(30)
     ,serverProcess(nullptr)
     ,m_manager(nullptr)
-    ,m_binPath("/llama.cpp/build/bin")
 {
-
+    QSettings settings("languageDriver", "languageDriver");
+    QString defaultBinPath = QCoreApplication::applicationDirPath() + "/llama.cpp/build/bin";
+    if (!QDir(defaultBinPath).exists()) {
+        defaultBinPath = QDir::homePath() + "/projects/languageDriver/llama.cpp/build/bin";
+    }
+    m_binPath = settings.value("Llama/binPath", defaultBinPath).toString();
 }
 
 TranslationEngine::~TranslationEngine() {

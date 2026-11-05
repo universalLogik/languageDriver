@@ -2,8 +2,8 @@
 Type=Application
 Name=languageDriver
 Comment=German Translation and Dictionary Suite
-Exec=/build/Desktop_Qt_6_11_1_Release/languageDriver
-Icon=/icon/languageDriver.png
+Exec=languageDriver
+Icon=languageDriver
 Terminal=false
 Categories=Utility;Education;Development;
 StartupWMClass=languageDriver

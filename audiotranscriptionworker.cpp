@@ -1,8 +1,9 @@
 #include "audiotranscriptionworker.h"
 #include <QDebug>
 #include <QFile>
-//#include <QDataStream> // ADD THIS
-#include <vector>      // ADD THIS
+#include <QSettings>
+#include <QDir>
+#include <vector>
 #include <QRegularExpression>
 #include "whisper.h"
 
@@ -33,9 +34,12 @@ void AudioTranscriptionWorker::processTranscription(const QString &audioFilePath
 
    // qDebug() << "[Whisper Debug] Starting Transcription process for Language:" << languageCode;
 
+    QSettings settings("languageDriver", "languageDriver");
+    QString whisperDir = settings.value("Whisper/modelDir", QDir::homePath() + "/whisper.cpp/models").toString();
+
     QString modelPath = (languageCode == "en")
-                            ? "$ENV{WHISPER_PATH}/models/ggml-medium.en.bin"
-                            : "$ENV{WHISPER_PATH}/models/ggml-medium.bin";
+                            ? settings.value("Whisper/modelEn", whisperDir + "/ggml-medium.en.bin").toString()
+                            : settings.value("Whisper/modelMulti", whisperDir + "/ggml-medium.bin").toString();
 
     if (!m_ctx || m_currentLoadedModel != modelPath) {
         if (m_ctx) {
