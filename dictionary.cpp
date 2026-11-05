@@ -3,6 +3,8 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QDebug>
+#include <QSettings>
+#include <QProcessEnvironment>
 
 Dictionary::Dictionary()
 {
@@ -89,10 +91,18 @@ bool Dictionary::connectToDatabase() {
         db = QSqlDatabase::addDatabase("QMYSQL");
     }
 
-    db.setHostName("127.0.0.1");
-    db.setDatabaseName("dictionary");
-    db.setUserName("root");
-    db.setPassword("");
+    QSettings settings("languageDriver", "languageDriver");
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+
+    QString host = env.value("DB_HOST", settings.value("Database/host", "127.0.0.1").toString());
+    QString dbName = env.value("DB_NAME", settings.value("Database/name", "dictionary").toString());
+    QString user = env.value("DB_USER", settings.value("Database/user", "root").toString());
+    QString pass = env.value("DB_PASSWORD", settings.value("Database/password", "").toString());
+
+    db.setHostName(host);
+    db.setDatabaseName(dbName);
+    db.setUserName(user);
+    db.setPassword(pass);
 
     if (!db.open()) {
         qDebug() << "Database Connection Error:" << db.lastError().text();
